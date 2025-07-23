@@ -3,11 +3,12 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
-  "author": "",
+  "start": "nodemon server.js"
+},
+  "type": "module",
+  "author": "Bhoomik Sevta Jii",
   "license": "ISC",
-  "description": "",
+  "description": "This is a basic chat application using sockets and Vanilla JS, Uses Exprss JS for backend",
   "dependencies": {
     "bcrypt": "^6.0.0",
     "dotenv": "^17.2.0",
