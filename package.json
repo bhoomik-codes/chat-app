@@ -5,7 +5,6 @@
   "scripts": {
   "start": "nodemon server.js"
 },
-  "type": "module",
   "author": "Bhoomik Sevta Jii",
   "license": "ISC",
   "description": "This is a basic chat application using sockets and Vanilla JS, Uses Exprss JS for backend",
