@@ -1,0 +1,136 @@
+/* login-classic.css */
+
+/* Inherit core variables from classic.css or define them if not imported */
+/* Assuming classic.css is linked globally or variables are duplicated here for standalone login */
+:root {
+    --primary-dark: #2B2D42;
+    --primary-medium: #3A3D57;
+    --ui-dark: #4F5D75;
+    --ui-medium: #8D99AE;
+    --bg-light: #EDF2F4;
+    --bg-lighter: #FFFFFF;
+    --accent: #EF8354;
+    --danger: #D90429;
+    --success: #2ecc40;
+    --text-light: #fefefe;
+    --text-dark: #111111;
+    --font-heading: 'Roboto', sans-serif;
+    --font-body: 'Roboto', sans-serif;
+}
+
+body {
+    font-family: var(--font-body);
+    background-color: var(--primary-dark);
+    color: var(--text-light);
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 20px;
+}
+
+.login-container {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    width: 100%;
+    max-width: 400px;
+}
+
+.splash-text {
+    font-family: var(--font-heading);
+    font-size: 1.8rem;
+    color: var(--bg-light);
+    margin-bottom: 25px;
+    text-align: center;
+    text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+}
+
+.login-card {
+    background-color: var(--bg-lighter);
+    padding: 40px;
+    border-radius: 12px;
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
+    text-align: center;
+    width: 100%;
+    color: var(--text-dark);
+}
+
+.login-card h2 {
+    font-family: var(--font-heading);
+    font-size: 2.5rem;
+    color: var(--primary-dark);
+    margin-bottom: 25px;
+    text-shadow: 1px 1px 2px rgba(0,0,0,0.1);
+}
+
+.login-card input[type="text"],
+.login-card input[type="password"] {
+    width: calc(100% - 24px);
+    padding: 12px;
+    margin-bottom: 20px;
+    border: 2px solid var(--ui-medium);
+    border-radius: 8px;
+    font-size: 1rem;
+    background: var(--bg-light);
+    color: var(--text-dark);
+    transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.login-card input[type="text"]:focus,
+.login-card input[type="password"]:focus {
+    outline: none;
+    border-color: var(--primary-dark);
+    box-shadow: 0 0 10px rgba(43, 45, 66, 0.2);
+}
+
+.login-card button {
+    background-color: var(--accent);
+    color: var(--text-light);
+    border: none;
+    padding: 12px 25px;
+    border-radius: 8px;
+    font-size: 1.1rem;
+    font-weight: bold;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    width: 100%;
+    box-shadow: 0 4px 10px rgba(239, 131, 84, 0.3);
+}
+
+.login-card button:hover {
+    background-color: #e46a3a;
+    transform: translateY(-2px);
+    box-shadow: 0 6px 15px rgba(239, 131, 84, 0.4);
+}
+
+.message-box {
+    padding: 10px;
+    margin-top: 15px;
+    border-radius: 8px;
+    font-weight: bold;
+    font-size: 0.95rem;
+    text-align: center;
+    color: var(--text-light);
+}
+
+.message-box.success {
+    background-color: var(--success);
+    border: 1px solid #1f8423;
+}
+
+.message-box.error {
+    background-color: var(--danger);
+    border: 1px solid #cc332b;
+}
+
+@media (max-width: 600px) {
+    .login-card {
+        padding: 30px 20px;
+    }
+    .splash-text {
+        font-size: 1.5rem;
+    }
+}

@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Login | Chat Without GPT</title>
+
+  <link rel="stylesheet" href="styles/classic.css" />
+
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,400,500,700&display=swap" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons" />
+
+</head>
+
+<body>
+  <div class="login-container">
+    <div class="splash-text" id="splashText">Connect with clarity.</div>
+    <div class="login-card">
+      <h2>Login to Chat</h2>
+      <input id="username" type="text" placeholder="Enter your name" />
+      <input id="password" type="password" placeholder="Enter password" />
+      <button onclick="getUsername()" id="submitPass">Submit</button>
+      <div id="messageBox" class="message-box" style="display: none;"></div>
+    </div>
+  </div>
+
+  <script src="login.js"></script>
+</body>
+
+</html>

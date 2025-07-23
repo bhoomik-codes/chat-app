@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Collaborative Drawing App</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Socket.IO Client CDN -->
+    <script src="https://cdn.socket.io/4.0.0/socket.io.min.js"></script>
+    <style>
+        /* Custom styles for the canvas and overall layout */
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f0f2f5; /* Light gray background */
+            display: flex;
+            justify-content: center;
+            align-items: flex-start; /* Align items to the top to give space for controls */
+            min-height: 100vh;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+
+        .container {
+            background-color: #ffffff; /* White background for the app container */
+            border-radius: 12px; /* Rounded corners for the container */
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1); /* Soft shadow */
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            width: 100%;
+            max-width: 900px; /* Max width for larger screens */
+        }
+
+        .controls {
+            display: flex;
+            flex-wrap: wrap; /* Allow controls to wrap on smaller screens */
+            gap: 15px; /* Space between control elements */
+            margin-bottom: 20px;
+            justify-content: center;
+            width: 100%;
+        }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .control-group label {
+            font-size: 0.9rem;
+            color: #555;
+            font-weight: 500;
+        }
+
+        input[type="color"] {
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            appearance: none;
+            width: 40px;
+            height: 40px;
+            background-color: transparent;
+            border: none;
+            cursor: pointer;
+            border-radius: 8px; /* Rounded corners for color picker */
+            overflow: hidden; /* Hide default color picker border */
+        }
+
+        input[type="color"]::-webkit-color-swatch {
+            border-radius: 8px;
+            border: none;
+        }
+
+        input[type="color"]::-webkit-color-swatch-wrapper {
+            padding: 0;
+        }
+
+        input[type="range"] {
+            width: 120px;
+            -webkit-appearance: none;
+            appearance: none;
+            height: 8px;
+            background: #e0e0e0;
+            border-radius: 5px;
+            outline: none;
+            opacity: 0.7;
+            transition: opacity .2s;
+        }
+
+        input[type="range"]:hover {
+            opacity: 1;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: #4f46e5; /* Tailwind indigo-600 */
+            cursor: pointer;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+        }
+
+        input[type="range"]::-moz-range-thumb {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: #4f46e5;
+            cursor: pointer;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+        }
+
+        .btn {
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease-in-out;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+        }
+
+        .btn-primary {
+            background-color: #6366f1; /* Tailwind indigo-500 */
+            color: white;
+            border: none;
+        }
+
+        .btn-primary:hover {
+            background-color: #4f46e5; /* Tailwind indigo-600 */
+            transform: translateY(-1px);
+        }
+
+        .btn-secondary {
+            background-color: #e0e7ff; /* Tailwind indigo-100 */
+            color: #4f46e5; /* Tailwind indigo-600 */
+            border: none;
+        }
+
+        .btn-secondary:hover {
+            background-color: #c7d2fe; /* Tailwind indigo-200 */
+            transform: translateY(-1px);
+        }
+
+        canvas {
+            border: 1px solid #e0e0e0; /* Light border for the canvas */
+            background-color: #ffffff; /* White background for the drawing area */
+            border-radius: 8px; /* Rounded corners for the canvas */
+            touch-action: none; /* Prevent default touch actions like scrolling/zooming */
+            width: 100%; /* Make canvas responsive */
+            height: 500px; /* Fixed height for now, can be made dynamic */
+            max-width: 100%; /* Ensure canvas doesn't overflow */
+        }
+
+        /* Responsive adjustments */
+        @media (max-width: 640px) {
+            .controls {
+                flex-direction: column; /* Stack controls vertically on small screens */
+                align-items: center;
+            }
+            input[type="range"] {
+                width: 100%; /* Full width for range input on small screens */
+                max-width: 200px;
+            }
+            .btn {
+                width: 100%; /* Full width for buttons on small screens */
+                max-width: 200px;
+            }
+        }
+
+        /* Modal styles */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.6);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+
+        .modal-content {
+            background-color: #ffffff;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.2);
+            text-align: center;
+            width: 90%;
+            max-width: 400px;
+        }
+
+        .modal-content input[type="text"] {
+            width: calc(100% - 20px);
+            padding: 10px;
+            margin-bottom: 15px;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 1rem;
+        }
+
+        .modal-content button {
+            width: 100%;
+            padding: 12px;
+            background-color: #6366f1;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 1.1rem;
+            cursor: pointer;
+            transition: background-color 0.2s ease;
+        }
+
+        .modal-content button:hover {
+            background-color: #4f46e5;
+        }
+
+        /* Room info and contributors list */
+        .room-info {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            width: 100%;
+            margin-bottom: 15px;
+            padding: 10px 0;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        .room-id-display {
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: #333;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .room-id-display button {
+            padding: 6px 10px;
+            font-size: 0.8rem;
+            background-color: #e0e7ff;
+            color: #4f46e5;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: background-color 0.2s ease;
+        }
+
+        .room-id-display button:hover {
+            background-color: #c7d2fe;
+        }
+
+        .contributors-list {
+            width: 100%;
+            margin-top: 15px;
+            padding: 10px;
+            background-color: #f9fafb;
+            border-radius: 8px;
+            border: 1px solid #e0e0e0;
+        }
+
+        .contributors-list h3 {
+            font-size: 1rem;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 10px;
+        }
+
+        .contributors-list ul {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            max-height: 100px; /* Limit height for scrollability */
+            overflow-y: auto;
+        }
+
+        .contributors-list li {
+            font-size: 0.9rem;
+            color: #555;
+            padding: 4px 0;
+            border-bottom: 1px dashed #f0f2f5;
+        }
+
+        .contributors-list li:last-child {
+            border-bottom: none;
+        }
+
+        /* Notification styles */
+        .notification {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background-color: #4CAF50; /* Green for success */
+            color: white;
+            padding: 10px 20px;
+            border-radius: 8px;
+            opacity: 0;
+            transition: opacity 0.5s ease-in-out;
+            z-index: 1001;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+        }
+
+        .notification.show {
+            opacity: 1;
+        }
+
+        .notification.error {
+            background-color: #f44336; /* Red for error */
+        }
+    </style>
+</head>
+<body>
+    <!-- Room Entry Modal -->
+    <div id="roomModal" class="modal-overlay">
+        <div class="modal-content">
+            <h2 class="text-2xl font-bold text-gray-800 mb-5">Join Drawing Room</h2>
+            <input type="text" id="usernameInput" placeholder="Enter your name" required>
+            <input type="text" id="roomInput" placeholder="Enter room ID (e.g., myroom123)" required>
+            <button id="joinRoomBtn">Join Room</button>
+        </div>
+    </div>
+
+    <div class="container hidden" id="appContainer">
+        <h1 class="text-3xl font-bold text-gray-800 mb-6">Collaborative Drawing App</h1>
+
+        <div class="room-info">
+            <div class="room-id-display">
+                Room ID: <span id="currentRoomId" class="font-mono text-indigo-600"></span>
+                <button id="copyRoomIdBtn">Copy</button>
+            </div>
+            <div class="flex gap-2">
+                <button id="undoBtn" class="btn btn-secondary" disabled>Undo</button>
+                <button id="redoBtn" class="btn btn-secondary" disabled>Redo</button>
+            </div>
+        </div>
+
+        <div class="controls">
+            <div class="control-group">
+                <label for="colorPicker">Pen Color:</label>
+                <input type="color" id="colorPicker" value="#000000">
+            </div>
+
+            <div class="control-group">
+                <label for="thicknessSlider">Pen Thickness:</label>
+                <input type="range" id="thicknessSlider" min="1" max="50" value="5">
+                <span id="thicknessValue" class="text-sm text-gray-600">5px</span>
+            </div>
+
+            <button id="eraserBtn" class="btn btn-secondary">Eraser</button>
+            <button id="clearBtn" class="btn btn-primary">Clear Screen</button>
+            
+            <div class="control-group">
+                <label for="saveFormat">Save As:</label>
+                <select id="saveFormat" class="btn btn-secondary">
+                    <option value="image/png">PNG</option>
+                    <option value="image/jpeg">JPEG</option>
+                </select>
+                <button id="saveBtn" class="btn btn-primary">Save Drawing</button>
+            </div>
+
+            <button id="closeCanvasBtn" class="btn btn-secondary">Close Canvas</button>
+        </div>
+
+        <canvas id="drawingCanvas"></canvas>
+
+        <div class="contributors-list">
+            <h3>Active Contributors:</h3>
+            <ul id="contributorsList">
+                <!-- Contributors will be listed here -->
+            </ul>
+        </div>
+    </div>
+
+    <!-- Notification Area -->
+    <div id="notification" class="notification"></div>
+
+    <script src="canvas.js"></script>
+</body>
+</html>

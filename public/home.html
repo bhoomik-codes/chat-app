@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Chat without GPT</title>
+
+    <!-- Font Awesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" xintegrity="sha512-SnH5WK+bZxgPHs44uWIX+LLJAJ9/2PkPKZ5QiAj6Ta86w+fsb2TkcmfRyVX3pBnMFcV7oQPJkl9QevSCWr3W6A==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+
+    <!-- Main Stylesheet -->
+    <link id="theme-stylesheet" rel="stylesheet" href="styles/classic.css" />
+
+    <!-- Socket.IO Client CDN -->
+    <script src="/socket.io/socket.io.js"></script>
+
+    <!-- Emoji Picker Library -->
+    <script src="https://cdn.jsdelivr.net/npm/emoji-picker-element@^1/index.js" type="module"></script>
+</head>
+
+<body>
+    <div class="app-container">
+        <!-- Header Section -->
+        <header class="header">
+            <h1 class="header-title">Chat without GPT</h1>
+            <span id="loggedInUsernameDisplay" class="logged-in-username"></span>
+            <div class="header-controls">
+                <button id="logoutButton" class="logout-button">
+                    <i class="fa-solid fa-person-walking-arrow-right"></i> Logout
+                </button>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="content">
+            <!-- Sidebar for user list -->
+            <aside class="sidebar">
+                <h2 class="sidebar-title">Users</h2>
+                <div class="user-search-container">
+                    <i class="fa-solid fa-magnifying-glass"></i>
+                    <input type="text" id="userSearch" placeholder="Search users..." />
+                </div>
+                <div class="user-list-container">
+                    <ul id="userList">
+                        <!-- User list will be populated dynamically -->
+                    </ul>
+                </div>
+            </aside>
+
+            <!-- Main chat interface -->
+            <section class="interface" id="chatInterface">
+                <div class="chat-header">
+                    <h3 id="chat-with-header">Select a user to start chatting</h3>
+                </div>
+                <div class="chatbox" id="chatBox">
+                    <!-- Messages will be loaded here dynamically -->
+                </div>
+
+                <!-- Message Request Bar -->
+                <div id="messageRequestBar" class="message-request-bar hidden">
+                    <div class="request-info">
+                        Accept message request from <strong id="requestSenderName"></strong>?
+                        <p>If you accept, they will be able to message you freely.</p>
+                    </div>
+                    <div class="request-actions">
+                        <button id="blockRequestBtn" class="request-action-btn block-btn">Block</button>
+                        <button id="deleteRequestBtn" class="request-action-btn delete-btn">Delete</button>
+                        <button id="acceptRequestBtn" class="request-action-btn accept-btn">Accept</button>
+                    </div>
+                </div>
+
+                <!-- Message Input Container -->
+                <div class="message-input-container hidden" id="messageInputContainer">
+                    <div class="emoji-picker-container">
+                        <button class="icon-button" id="emojiButton" title="Send Emoji">
+                            <i class="fa-solid fa-face-grin-beam"></i>
+                        </button>
+                        <emoji-picker class="hidden"></emoji-picker>
+                    </div>
+                    <input id="m" autocomplete="off" placeholder="Type your message..." />
+                    <button class="send-button" id="send" title="Send Message">
+                        <i class="fa-solid fa-paper-plane"></i>
+                    </button>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Your App's Script -->
+    <script src="index.js" type="module"></script>
+</body>
+
+</html>

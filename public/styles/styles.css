@@ -1,0 +1,26 @@
+/* Base structural styles for Notification Panel */
+.notification-panel {
+    position: fixed;
+    top: 0;
+    right: 0;
+    width: 350px;
+    height: 100%;
+    z-index: 100;
+    display: flex;
+    flex-direction: column;
+    transform: translateX(0); /* Visible position */
+    transition: transform 0.3s ease-in-out; /* Smooth transition for showing/hiding */
+    /* Theme-specific styles like background-color, color, box-shadow will be applied by the theme CSS */
+}
+
+.notification-panel.hidden {
+    transform: translateX(100%); /* Ensures it's off-screen when hidden */
+}
+
+/* ===== Responsive Styling ===== */
+@media (max-width: 480px) {
+    .notification-panel {
+        width: 100%; /* Full width on small mobile screens */
+        border-left: none; /* Remove side border when full width */
+    }
+}
