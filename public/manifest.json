@@ -1,0 +1,17 @@
+{
+  "name": "KASUGAI - Crow Messengers",
+  "short_name": "KASUGAI",
+  "description": "Real-time private messaging and collaborative scrolls.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#10101A",
+  "theme_color": "#731A1E",
+  "icons": [
+    {
+      "src": "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='50%' x='50%' text-anchor='middle' dominant-baseline='middle' font-size='80'>🐦‍⬛</text></svg>",
+      "type": "image/svg+xml",
+      "sizes": "512x512",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -25,6 +25,15 @@ document.addEventListener('DOMContentLoaded', () => {
     const messageRequestBar = document.getElementById('messageRequestBar');
     const emojiButton = document.getElementById('emojiButton');
     const emojiPicker = document.querySelector('emoji-picker');
+    const startCanvasBtn = document.getElementById('startCanvasBtn');
+    const inputAreaWrapper = document.getElementById('inputAreaWrapper');
+    const replyPreviewBar = document.getElementById('replyPreviewBar');
+    const replyPreviewLabel = document.getElementById('replyPreviewLabel');
+    const replyPreviewText = document.getElementById('replyPreviewText');
+    const replyCancelBtn = document.getElementById('replyCancelBtn');
+
+    // --- Reply State ---
+    let replyContext = null; // { senderName, content }
 
     // --- Audio Context for Notification Sound ---
     let audioCtx;
@@ -73,10 +82,33 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Core Event Listeners ---
     document.getElementById("send").addEventListener("click", sendMessage);
     messageInput.addEventListener("keypress", (e) => { if (e.key === "Enter") sendMessage(); });
+
+    // Reply cancel button
+    replyCancelBtn.addEventListener('click', clearReply);
     logoutButton.addEventListener('click', () => {
         localStorage.clear();
         socket.disconnect();
         location.href = "/";
+    });
+
+    // ── Canvas Launch Button ───────────────────────────────────────────────
+    startCanvasBtn.addEventListener('click', () => {
+        if (currentChatContext.type === 'existingChat') {
+            const room = `kasugai-room-${currentChatContext.chat._id}`;
+            const url  = `/canvas.html?username=${encodeURIComponent(myUsername)}&roomId=${encodeURIComponent(room)}`;
+            // Send invite message
+            socket.emit('sendMessage', { chatId: currentChatContext.chat._id, messageContent: `$$CANVAS_INVITE$$${room}` });
+            window.open(url, '_blank');
+        }
+    });
+
+    // Handle Join Canvas clicks in chat
+    chatBox.addEventListener('click', (e) => {
+        if (e.target.classList.contains('join-scroll-btn')) {
+            const room = e.target.dataset.room;
+            const url  = `/canvas.html?username=${encodeURIComponent(myUsername)}&roomId=${encodeURIComponent(room)}`;
+            window.open(url, '_blank');
+        }
     });
 
     userList.addEventListener("click", (e) => {
@@ -87,8 +119,20 @@ document.addEventListener('DOMContentLoaded', () => {
             const targetId = listItem.dataset.id;
             const isGroup = listItem.dataset.isgroup === 'true';
             socket.emit('loadChatContext', { targetId, isGroup });
+            
+            // Activate chat on mobile
+            document.querySelector('.app-container').classList.add('chat-active');
         }
     });
+
+    const mobileBackBtn = document.getElementById('mobileBackBtn');
+    if (mobileBackBtn) {
+        mobileBackBtn.addEventListener('click', () => {
+            document.querySelector('.app-container').classList.remove('chat-active');
+            // Deselect user locally
+            document.querySelectorAll('#userList .user-item.active').forEach(item => item.classList.remove('active'));
+        });
+    }
 
     userSearchInput.addEventListener('input', () => {
         const searchTerm = userSearchInput.value.trim();
@@ -157,12 +201,14 @@ document.addEventListener('DOMContentLoaded', () => {
             case 'existingChat':
                 const chatName = context.chat.isGroupChat ? context.chat.groupName : context.chat.members.find(m => m.username !== myUsername).username;
                 chatWithHeader.textContent = `Chat with ${chatName}`;
+                startCanvasBtn.classList.remove('hidden');
                 context.messages.forEach(msg => appendMessage(msg));
                 showRequestBar(false);
                 showChatInput(true);
                 break;
             case 'requestSent':
                 chatWithHeader.textContent = `Request to ${context.request.receiver.username}`;
+                startCanvasBtn.classList.add('hidden');
                 appendSystemMessage("You sent a request. Awaiting response.");
                 if(context.request.initialMessage) appendMessage(context.request.initialMessage);
                 showRequestBar(false);
@@ -170,12 +216,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 break;
             case 'requestReceived':
                 chatWithHeader.textContent = `Request from ${context.request.sender.username}`;
+                startCanvasBtn.classList.add('hidden');
                 if(context.request.initialMessage) appendMessage(context.request.initialMessage);
                 showRequestBar(true, context.request);
                 showChatInput(false);
                 break;
             case 'new':
                 chatWithHeader.textContent = `Start chat with ${context.partner.username}`;
+                startCanvasBtn.classList.add('hidden');
                 appendSystemMessage(`Send a message to connect with ${context.partner.username}.`);
                 showRequestBar(false);
                 showChatInput(true);
@@ -232,6 +280,7 @@ document.addEventListener('DOMContentLoaded', () => {
     socket.on('requestHandled', () => {
         socket.emit("requestInitialData");
         chatWithHeader.textContent = "Select a user to start chatting";
+        startCanvasBtn.classList.add('hidden');
         chatBox.innerHTML = "";
         showRequestBar(false);
         showChatInput(false);
@@ -269,16 +318,58 @@ document.addEventListener('DOMContentLoaded', () => {
     function appendMessage(msg) {
         if (!msg || !msg.sender) return;
         const isSelf = msg.sender.username === myUsername;
+        const date = new Date(msg.createdAt || Date.now());
+
+        // Outer wrapper (holds message bubble + reply button)
+        const wrapper = document.createElement('div');
+        wrapper.className = `message-wrapper ${isSelf ? 'self' : 'other'}`;
+
         const msgDiv = document.createElement("div");
         msgDiv.className = `message ${isSelf ? 'self' : 'other'}`;
-        const date = new Date(msg.createdAt || Date.now());
-        msgDiv.innerHTML = `
-            <div class="message-content">
-                <strong>${isSelf ? 'You' : msg.sender.username}</strong>
-                <p>${msg.content}</p>
-                <span class="timestamp">${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-            </div>`;
-        chatBox.appendChild(msgDiv);
+
+        // Reply quote block (if this message is a reply)
+        let replyQuoteHtml = '';
+        if (msg.replyTo) {
+            replyQuoteHtml = `
+                <div class="reply-quote">
+                    <div class="reply-quote-author">${msg.replyTo.senderName}</div>
+                    <div class="reply-quote-text">${msg.replyTo.content}</div>
+                </div>`;
+        }
+        
+        if (msg.content.startsWith('$$CANVAS_INVITE$$')) {
+            const roomId = msg.content.substring(17);
+            msgDiv.innerHTML = `
+                <div class="message-content">
+                    ${replyQuoteHtml}
+                    <strong>${isSelf ? 'You' : msg.sender.username}</strong>
+                    <p>🎨 I've opened a collaborative Scroll Canvas.</p>
+                    <button class="join-scroll-btn" data-room="${roomId}" style="margin-top: 8px; padding: 6px 12px; background: linear-gradient(135deg, var(--gold-dim) 0%, var(--gold) 100%); color: var(--night); border: none; border-radius: 6px; cursor: pointer; font-family: var(--font-display); font-weight: 600;">Join Scroll &nbsp;→</button>
+                    <span class="timestamp">${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                </div>`;
+        } else {
+            msgDiv.innerHTML = `
+                <div class="message-content">
+                    ${replyQuoteHtml}
+                    <strong>${isSelf ? 'You' : msg.sender.username}</strong>
+                    <p>${msg.content}</p>
+                    <span class="timestamp">${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                </div>`;
+        }
+
+        // Reply button
+        const replyBtn = document.createElement('button');
+        replyBtn.className = 'reply-btn';
+        replyBtn.title = 'Reply';
+        replyBtn.innerHTML = '<i class="fa-solid fa-reply"></i>';
+        replyBtn.addEventListener('click', () => {
+            setReply(msg.sender.username === myUsername ? 'You' : msg.sender.username, msg.content);
+        });
+
+        wrapper.appendChild(msgDiv);
+        wrapper.appendChild(replyBtn);
+
+        chatBox.appendChild(wrapper);
         chatBox.scrollTop = chatBox.scrollHeight;
     }
 
@@ -290,7 +381,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function showChatInput(show) {
-        messageInputContainer.classList.toggle('hidden', !show);
+        // Toggle the entire input area wrapper
+        inputAreaWrapper.classList.toggle('hidden', !show);
+        if (!show) clearReply();
     }
 
     function showRequestBar(show, request = null) {
@@ -308,11 +401,32 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!content) return;
 
         if (currentChatContext.type === 'existingChat') {
-            socket.emit('sendMessage', { chatId: currentChatContext.chat._id, messageContent: content });
+            socket.emit('sendMessage', {
+                chatId: currentChatContext.chat._id,
+                messageContent: content,
+                replyTo: replyContext ? { senderName: replyContext.senderName, content: replyContext.content } : null
+            });
         } else if (currentChatContext.type === 'new') {
             socket.emit('sendInitialMessage', { targetUserId: currentChatContext.partner._id, messageContent: content });
         }
 
         messageInput.value = "";
+        clearReply();
+    }
+
+    function setReply(senderName, content) {
+        replyContext = { senderName, content };
+        replyPreviewLabel.textContent = `Replying to ${senderName}`;
+        // Truncate long messages in preview
+        replyPreviewText.textContent = content.length > 80 ? content.slice(0, 80) + '…' : content;
+        replyPreviewBar.classList.remove('hidden');
+        messageInput.focus();
+    }
+
+    function clearReply() {
+        replyContext = null;
+        replyPreviewBar.classList.add('hidden');
+        replyPreviewLabel.textContent = '';
+        replyPreviewText.textContent = '';
     }
 });

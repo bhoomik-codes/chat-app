@@ -4,23 +4,46 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Login | Chat Without GPT</title>
+  <title>KASUGAI — Login</title>
+  <meta name="description" content="KASUGAI — Private messaging for Demon Slayers. Login or create your account." />
 
-  <link rel="stylesheet" href="styles/classic.css" />
-
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,400,500,700&display=swap" />
-  <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons" />
-
+  <link rel="stylesheet" href="styles/kasugai.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  
+  <!-- PWA Manifest & Theme Color -->
+  <link rel="manifest" href="manifest.json" />
+  <meta name="theme-color" content="#10101A" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <script>
+      if ('serviceWorker' in navigator) {
+          window.addEventListener('load', () => {
+              navigator.serviceWorker.register('/sw.js').catch(err => console.error('SW registration failed:', err));
+          });
+      }
+  </script>
 </head>
 
 <body>
   <div class="login-container">
-    <div class="splash-text" id="splashText">Connect with clarity.</div>
+    <div class="splash-text">⚔ &nbsp;Deliver Your Message In Silence&nbsp; ⚔</div>
     <div class="login-card">
-      <h2>Login to Chat</h2>
-      <input id="username" type="text" placeholder="Enter your name" />
-      <input id="password" type="password" placeholder="Enter password" />
-      <button onclick="getUsername()" id="submitPass">Submit</button>
+      <h2 id="formTitle">Login to KASUGAI</h2>
+
+      <input id="username" type="text" placeholder="Your crow name..." autocomplete="username" />
+      <input id="password" type="password" placeholder="Secret passphrase..." autocomplete="current-password" />
+
+      <div id="passwordConfirmGroup" style="display: none;">
+        <input id="passwordConfirm" type="password" placeholder="Confirm passphrase..." autocomplete="new-password" />
+      </div>
+
+      <button id="submitLogin">Enter &nbsp;→</button>
+      <button id="submitRegister" style="display: none;">Become a Crow &nbsp;→</button>
+
+      <p style="text-align: center; margin-top: 14px; font-size: 0.82rem;">
+        <a href="#" id="toggleMode">Don't have an account? Register</a>
+      </p>
+
       <div id="messageBox" class="message-box" style="display: none;"></div>
     </div>
   </div>
