@@ -60,6 +60,16 @@
                         <!-- Populated dynamically -->
                     </ul>
                 </div>
+                <button id="newGroupBtn" class="new-group-btn">
+                    <i class="fa-solid fa-users"></i> Form Unit
+                </button>
+                <div class="profile-card" id="profileCardBtn">
+                    <div class="profile-avatar"></div>
+                    <div class="profile-info">
+                        <span class="profile-name" id="profileCardName">Demon Slayer</span>
+                        <span class="profile-status" id="profileCardStatus">Ready</span>
+                    </div>
+                </div>
             </aside>
 
             <!-- Chat Interface -->
@@ -72,6 +82,10 @@
                     <button id="startCanvasBtn" class="canvas-launch-btn hidden" style="margin-left: auto;">
                         <i class="fa-solid fa-paintbrush"></i> Start Scroll
                     </button>
+                </div>
+                <div class="pinned-header-bar hidden" id="pinnedHeaderBar">
+                    <i class="fa-solid fa-thumbtack"></i>
+                    <span id="pinnedMessagePreview"></span>
                 </div>
                 <div class="chatbox" id="chatBox">
                     <!-- Messages loaded here -->
@@ -122,6 +136,44 @@
 
             </section>
         </main>
+        
+        <!-- Group Creation Modal -->
+        <div id="groupModal" class="modal hidden">
+            <div class="modal-content">
+                <h2>Form New Corps Unit</h2>
+                <input type="text" id="groupNameInput" placeholder="Unit Name..." />
+                <div class="friend-select-list" id="groupFriendList"></div>
+                <div class="modal-actions">
+                    <button id="cancelGroupBtn">Cancel</button>
+                    <button id="confirmGroupBtn">Form Unit</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Profile Settings Drawer -->
+        <div id="profileDrawer" class="side-drawer hidden">
+            <div class="drawer-header">
+                <h2>Profile</h2>
+                <button id="closeProfileBtn"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="drawer-content">
+                <label>Status Quote</label>
+                <input type="text" id="profileQuoteInput" placeholder="Your quote..." />
+                <label>Banner Color</label>
+                <input type="color" id="profileColorInput" value="#8B0000" />
+                <button id="saveProfileBtn">Save Profile</button>
+            </div>
+        </div>
+
+        <!-- Toast Container -->
+        <div id="toastContainer" class="toast-container"></div>
+        
+        <!-- Custom Context Menu -->
+        <div id="contextMenu" class="context-menu hidden">
+            <button id="ctxCopyBtn"><i class="fa-solid fa-copy"></i> Copy Text</button>
+            <button id="ctxReplyBtn"><i class="fa-solid fa-reply"></i> Reply</button>
+            <button id="ctxPinBtn"><i class="fa-solid fa-thumbtack"></i> Pin / Unpin</button>
+        </div>
     </div>
 
     <script src="index.js" type="module"></script>

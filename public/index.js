@@ -32,8 +32,34 @@ document.addEventListener('DOMContentLoaded', () => {
     const replyPreviewText = document.getElementById('replyPreviewText');
     const replyCancelBtn = document.getElementById('replyCancelBtn');
 
-    // --- Reply State ---
-    let replyContext = null; // { senderName, content }
+    // --- New Features Variables ---
+    const newGroupBtn = document.getElementById('newGroupBtn');
+    const groupModal = document.getElementById('groupModal');
+    const cancelGroupBtn = document.getElementById('cancelGroupBtn');
+    const confirmGroupBtn = document.getElementById('confirmGroupBtn');
+    const groupNameInput = document.getElementById('groupNameInput');
+    const groupFriendList = document.getElementById('groupFriendList');
+
+    const profileCardBtn = document.getElementById('profileCardBtn');
+    const profileDrawer = document.getElementById('profileDrawer');
+    const closeProfileBtn = document.getElementById('closeProfileBtn');
+    const saveProfileBtn = document.getElementById('saveProfileBtn');
+    const profileQuoteInput = document.getElementById('profileQuoteInput');
+    const profileColorInput = document.getElementById('profileColorInput');
+    const profileCardName = document.getElementById('profileCardName');
+    const profileCardStatus = document.getElementById('profileCardStatus');
+
+    const contextMenu = document.getElementById('contextMenu');
+    const ctxCopyBtn = document.getElementById('ctxCopyBtn');
+    const ctxReplyBtn = document.getElementById('ctxReplyBtn');
+    const ctxPinBtn = document.getElementById('ctxPinBtn');
+    const toastContainer = document.getElementById('toastContainer');
+    const pinnedHeaderBar = document.getElementById('pinnedHeaderBar');
+    const pinnedMessagePreview = document.getElementById('pinnedMessagePreview');
+
+    // --- Reply & Context State ---
+    let replyContext = null; // { messageId, senderName, content }
+    let contextTargetMessage = null; // { id, content, senderName }
 
     // --- Audio Context for Notification Sound ---
     let audioCtx;
@@ -89,6 +115,92 @@ document.addEventListener('DOMContentLoaded', () => {
         localStorage.clear();
         socket.disconnect();
         location.href = "/";
+    });
+
+    // --- Toast Helper ---
+    function showToast(msg) {
+        const t = document.createElement('div');
+        t.className = 'toast';
+        t.textContent = msg;
+        toastContainer.appendChild(t);
+        setTimeout(() => t.remove(), 3500);
+    }
+
+    // --- Profile Settings ---
+    profileCardBtn.addEventListener('click', () => profileDrawer.classList.remove('hidden'));
+    closeProfileBtn.addEventListener('click', () => profileDrawer.classList.add('hidden'));
+    saveProfileBtn.addEventListener('click', async () => {
+        const statusQuote = profileQuoteInput.value;
+        const bannerColor = profileColorInput.value;
+        try {
+            const res = await fetch('/api/user/profile', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authToken}` },
+                body: JSON.stringify({ statusQuote, bannerColor })
+            });
+            const data = await res.json();
+            if (data.success) {
+                profileCardStatus.textContent = statusQuote || 'Ready';
+                document.querySelector('.profile-avatar').style.backgroundColor = bannerColor;
+                showToast('Profile updated!');
+                profileDrawer.classList.add('hidden');
+            } else {
+                showToast('Failed to update profile.');
+            }
+        } catch (e) {
+            showToast('Error updating profile.');
+        }
+    });
+
+    // --- Group Creation ---
+    newGroupBtn.addEventListener('click', () => {
+        groupNameInput.value = '';
+        groupFriendList.innerHTML = '';
+        Object.entries(friendsList).forEach(([name, data]) => {
+            if (data.type === 'user' && data.status === 'friend') {
+                const label = document.createElement('label');
+                label.className = 'friend-select-item';
+                label.innerHTML = `<input type="checkbox" value="${data._id}"> ${name}`;
+                groupFriendList.appendChild(label);
+            }
+        });
+        groupModal.classList.remove('hidden');
+    });
+    cancelGroupBtn.addEventListener('click', () => groupModal.classList.add('hidden'));
+    confirmGroupBtn.addEventListener('click', () => {
+        const groupName = groupNameInput.value.trim();
+        const selected = Array.from(groupFriendList.querySelectorAll('input:checked')).map(cb => cb.value);
+        if (groupName && selected.length > 0) {
+            socket.emit('createGroup', { groupName, memberIds: selected });
+            groupModal.classList.add('hidden');
+        } else {
+            showToast('Enter a name and select members.');
+        }
+    });
+
+    // --- Context Menu Actions ---
+    document.body.addEventListener('click', () => contextMenu.classList.add('hidden'));
+    
+    ctxCopyBtn.addEventListener('click', () => {
+        if (!contextTargetMessage) return;
+        navigator.clipboard.writeText(contextTargetMessage.content).then(() => {
+            showToast('Scroll copied to clipboard!');
+        });
+    });
+    
+    ctxReplyBtn.addEventListener('click', () => {
+        if (!contextTargetMessage) return;
+        setReply(contextTargetMessage.id, contextTargetMessage.senderName, contextTargetMessage.content);
+    });
+    
+    ctxPinBtn.addEventListener('click', () => {
+        if (!contextTargetMessage || !currentChatContext.chat) return;
+        const isPinned = currentChatContext.chat.pinnedMessages?.some(m => (m._id || m) === contextTargetMessage.id);
+        if (isPinned) {
+            socket.emit('unpinMessage', { chatId: currentChatContext.chat._id, messageId: contextTargetMessage.id });
+        } else {
+            socket.emit('pinMessage', { chatId: currentChatContext.chat._id, messageId: contextTargetMessage.id });
+        }
     });
 
     // ── Canvas Launch Button ───────────────────────────────────────────────
@@ -205,6 +317,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 context.messages.forEach(msg => appendMessage(msg));
                 showRequestBar(false);
                 showChatInput(true);
+                updatePinnedHeader();
                 break;
             case 'requestSent':
                 chatWithHeader.textContent = `Request to ${context.request.receiver.username}`;
@@ -286,6 +399,47 @@ document.addEventListener('DOMContentLoaded', () => {
         showChatInput(false);
     });
 
+    socket.on('messagePinned', ({ chatId, pinnedMessages }) => {
+        if (currentChatContext.type === 'existingChat' && currentChatContext.chat._id === chatId) {
+            currentChatContext.chat.pinnedMessages = pinnedMessages;
+            updatePinnedHeader();
+        }
+    });
+    
+    socket.on('messageUnpinned', ({ chatId, messageId }) => {
+        if (currentChatContext.type === 'existingChat' && currentChatContext.chat._id === chatId) {
+            currentChatContext.chat.pinnedMessages = currentChatContext.chat.pinnedMessages.filter(m => (m._id || m) !== messageId);
+            updatePinnedHeader();
+        }
+    });
+
+    socket.on('groupCreated', ({ chat }) => {
+        socket.emit("requestInitialData");
+    });
+
+    let currentPinIndex = 0;
+    function updatePinnedHeader() {
+        const pins = currentChatContext.chat?.pinnedMessages || [];
+        if (pins.length > 0) {
+            pinnedHeaderBar.classList.remove('hidden');
+            const pin = pins[currentPinIndex % pins.length];
+            const pContent = pin.content || "Pinned message";
+            pinnedMessagePreview.textContent = pContent.length > 50 ? pContent.substring(0,50)+'...' : pContent;
+            pinnedHeaderBar.onclick = () => {
+                currentPinIndex++;
+                updatePinnedHeader();
+                const msgEl = document.querySelector(`.message-wrapper[data-id="${pin._id || pin}"] .message`);
+                if (msgEl) {
+                    msgEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    msgEl.classList.add('highlight');
+                    setTimeout(() => msgEl.classList.remove('highlight'), 1000);
+                }
+            };
+        } else {
+            pinnedHeaderBar.classList.add('hidden');
+        }
+    }
+
     function populateUserList(partners) {
         userList.innerHTML = "";
         Object.entries(partners).forEach(([name, data]) => {
@@ -297,7 +451,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 li.dataset.isgroup = 'true';
                 li.innerHTML = `
                     <img class="avatar" src="https://placehold.co/40x40/6a5af9/FFFFFF?text=G" alt="Group Avatar">
-                    <span class="username">${name}</span>
+                    <span class="username">[CORPS UNIT] ${name}</span>
                     <span class="status-label group">${data.memberCount} members</span>`;
             } else {
                 li.dataset.isgroup = 'false';
@@ -323,16 +477,18 @@ document.addEventListener('DOMContentLoaded', () => {
         // Outer wrapper (holds message bubble + reply button)
         const wrapper = document.createElement('div');
         wrapper.className = `message-wrapper ${isSelf ? 'self' : 'other'}`;
-
+        wrapper.dataset.id = msg._id;
+        
         const msgDiv = document.createElement("div");
         msgDiv.className = `message ${isSelf ? 'self' : 'other'}`;
 
         // Reply quote block (if this message is a reply)
         let replyQuoteHtml = '';
         if (msg.replyTo) {
+            const rSender = msg.replyTo.senderName || (msg.replyTo.sender && msg.replyTo.sender.username) || 'Unknown';
             replyQuoteHtml = `
-                <div class="reply-quote">
-                    <div class="reply-quote-author">${msg.replyTo.senderName}</div>
+                <div class="reply-quote" data-target="${msg.replyTo._id}">
+                    <div class="reply-quote-author">${rSender}</div>
                     <div class="reply-quote-text">${msg.replyTo.content}</div>
                 </div>`;
         }
@@ -357,13 +513,46 @@ document.addEventListener('DOMContentLoaded', () => {
                 </div>`;
         }
 
+        // Add scroll to reply handler
+        const quoteBlock = msgDiv.querySelector('.reply-quote');
+        if (quoteBlock) {
+            quoteBlock.style.cursor = 'pointer';
+            quoteBlock.style.borderLeft = '4px solid var(--gold)';
+            quoteBlock.style.background = 'rgba(212, 175, 55, 0.1)';
+            quoteBlock.style.padding = '5px';
+            quoteBlock.style.marginBottom = '5px';
+            quoteBlock.addEventListener('click', () => {
+                const targetId = quoteBlock.dataset.target;
+                const targetEl = document.querySelector(`.message-wrapper[data-id="${targetId}"] .message`);
+                if (targetEl) {
+                    targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    targetEl.classList.add('highlight');
+                    setTimeout(() => targetEl.classList.remove('highlight'), 1000);
+                }
+            });
+        }
+
+        // Context Menu Handler
+        msgDiv.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            contextTargetMessage = { id: msg._id, content: msg.content, senderName: isSelf ? 'You' : msg.sender.username };
+            
+            // Check if pinned to update pin button text
+            const isPinned = currentChatContext.chat?.pinnedMessages?.some(m => (m._id || m) === msg._id);
+            ctxPinBtn.innerHTML = isPinned ? '<i class="fa-solid fa-thumbtack-slash"></i> Unpin' : '<i class="fa-solid fa-thumbtack"></i> Pin';
+            
+            contextMenu.style.left = `${e.pageX}px`;
+            contextMenu.style.top = `${e.pageY}px`;
+            contextMenu.classList.remove('hidden');
+        });
+
         // Reply button
         const replyBtn = document.createElement('button');
         replyBtn.className = 'reply-btn';
         replyBtn.title = 'Reply';
         replyBtn.innerHTML = '<i class="fa-solid fa-reply"></i>';
         replyBtn.addEventListener('click', () => {
-            setReply(msg.sender.username === myUsername ? 'You' : msg.sender.username, msg.content);
+            setReply(msg._id, msg.sender.username === myUsername ? 'You' : msg.sender.username, msg.content);
         });
 
         wrapper.appendChild(msgDiv);
@@ -404,7 +593,7 @@ document.addEventListener('DOMContentLoaded', () => {
             socket.emit('sendMessage', {
                 chatId: currentChatContext.chat._id,
                 messageContent: content,
-                replyTo: replyContext ? { senderName: replyContext.senderName, content: replyContext.content } : null
+                replyToId: replyContext ? replyContext.messageId : null
             });
         } else if (currentChatContext.type === 'new') {
             socket.emit('sendInitialMessage', { targetUserId: currentChatContext.partner._id, messageContent: content });
@@ -414,8 +603,8 @@ document.addEventListener('DOMContentLoaded', () => {
         clearReply();
     }
 
-    function setReply(senderName, content) {
-        replyContext = { senderName, content };
+    function setReply(messageId, senderName, content) {
+        replyContext = { messageId, senderName, content };
         replyPreviewLabel.textContent = `Replying to ${senderName}`;
         // Truncate long messages in preview
         replyPreviewText.textContent = content.length > 80 ? content.slice(0, 80) + '…' : content;

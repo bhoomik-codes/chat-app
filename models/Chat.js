@@ -9,6 +9,9 @@ const chatSchema = new mongoose.Schema({
   groupAvatar: { type: String, default: null }, // Avatar URL for group chats
   // Reference to the last message in this chat, for quick display in chat lists
   lastMessage: { type: mongoose.Schema.Types.ObjectId, ref: 'Message' },
+  pinnedMessages: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Message' }],
+  groupAdmins: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+  createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
 }, { timestamps: true });
 
 // Add an index on members for faster lookup of chats involving specific users

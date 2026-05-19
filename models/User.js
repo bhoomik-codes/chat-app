@@ -23,6 +23,18 @@ const UserSchema = new mongoose.Schema({
         type: mongoose.Schema.Types.ObjectId,
         ref: 'User'
     }],
+    statusQuote: {
+        type: String,
+        default: 'Slaying demons since dusk.'
+    },
+    bannerColor: {
+        type: String,
+        default: '#8B0000'
+    },
+    avatar: {
+        type: String,
+        default: null
+    },
     createdAt: {
         type: Date,
         default: Date.now

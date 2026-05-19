@@ -142,7 +142,7 @@ function registerChatHandlers(io) {
                 let partner = null;
 
                 if (isGroup) {
-                    chat = await Chat.findById(targetId).populate('members', 'username');
+                    chat = await Chat.findById(targetId).populate('members', 'username').populate('pinnedMessages');
                 } else {
                     partner = await User.findById(targetId); // Fetched ONCE, reused below
                     if (!partner) {
@@ -151,12 +151,13 @@ function registerChatHandlers(io) {
                     chat = await Chat.findOne({
                         isGroupChat: false,
                         members: { $all: [socket.userId, partner._id] }
-                    }).populate('members', 'username');
+                    }).populate('members', 'username').populate('pinnedMessages');
                 }
 
                 if (chat) {
                     const messages = await Message.find({ chatId: chat._id })
                         .populate('sender', 'username')
+                        .populate({ path: 'replyTo', populate: { path: 'sender', select: 'username' } })
                         .sort({ createdAt: 1 })
                         .lean();
                     return socket.emit('chatContext', { type: 'existingChat', chat, messages });
@@ -260,8 +261,8 @@ function registerChatHandlers(io) {
                 await MessageRequest.findByIdAndDelete(requestId);
 
                 const [populatedChat, messages] = await Promise.all([
-                    Chat.findById(newChat._id).populate('members', 'username'),
-                    Message.find({ chatId: newChat._id }).populate('sender', 'username').sort({ createdAt: 1 }).lean(),
+                    Chat.findById(newChat._id).populate('members', 'username').populate('pinnedMessages'),
+                    Message.find({ chatId: newChat._id }).populate('sender', 'username').populate({ path: 'replyTo', populate: { path: 'sender', select: 'username' } }).sort({ createdAt: 1 }).lean(),
                 ]);
 
                 const payload = { chat: populatedChat, messages };
@@ -288,7 +289,7 @@ function registerChatHandlers(io) {
         // ────────────────────────────────────────
         // sendMessage — FIXED: membership guard
         // ────────────────────────────────────────
-        socket.on('sendMessage', async ({ chatId, messageContent }) => {
+        socket.on('sendMessage', async ({ chatId, messageContent, replyToId }) => {
             try {
                 if (!messageContent || typeof messageContent !== 'string' || messageContent.trim() === '') {
                     return socket.emit('socketError', { event: 'sendMessage', message: 'Message content cannot be empty.' });
@@ -304,11 +305,20 @@ function registerChatHandlers(io) {
                 if (!isMember) {
                     return socket.emit('socketError', { event: 'sendMessage', message: 'You are not a member of this chat.' });
                 }
+                
+                let replyTo = null;
+                if (replyToId) {
+                    const parentMsg = await Message.findOne({ _id: replyToId, chatId });
+                    if (!parentMsg) {
+                        return socket.emit('socketError', { event: 'sendMessage', message: 'Replied message not found.' });
+                    }
+                    replyTo = parentMsg._id;
+                }
 
-                const newMessage = new Message({ sender: socket.userId, chatId, content: messageContent.trim() });
+                const newMessage = new Message({ sender: socket.userId, chatId, content: messageContent.trim(), replyTo });
                 await newMessage.save();
 
-                const populatedMessage = await Message.findById(newMessage._id).populate('sender', 'username').lean();
+                const populatedMessage = await Message.findById(newMessage._id).populate('sender', 'username').populate({ path: 'replyTo', populate: { path: 'sender', select: 'username' } }).lean();
 
                 // Fan-out to all chat members
                 chat.members.forEach(member => {
@@ -370,8 +380,100 @@ function registerChatHandlers(io) {
         });
 
         // ────────────────────────────────────────
-        // Disconnect — FIXED: memory-safe cleanup
+        // Pinned Messages
         // ────────────────────────────────────────
+        socket.on('pinMessage', async ({ chatId, messageId }) => {
+            try {
+                const chat = await Chat.findById(chatId);
+                if (!chat) return socket.emit('socketError', { event: 'pinMessage', message: 'Chat not found.' });
+                if (!chat.members.includes(socket.userId)) return socket.emit('socketError', { event: 'pinMessage', message: 'Unauthorized' });
+                
+                if (chat.pinnedMessages.length >= 3) {
+                    chat.pinnedMessages.shift(); // Remove oldest pin
+                }
+                if (!chat.pinnedMessages.includes(messageId)) {
+                    chat.pinnedMessages.push(messageId);
+                    await chat.save();
+                }
+                const populatedChat = await Chat.findById(chatId).populate('pinnedMessages');
+                chat.members.forEach(member => {
+                    const socks = userSocketMap.get(member.toString());
+                    if (socks) socks.forEach(id => io.to(id).emit('messagePinned', { chatId, pinnedMessages: populatedChat.pinnedMessages }));
+                });
+            } catch (err) {
+                socket.emit('socketError', { event: 'pinMessage', message: 'Failed to pin message.' });
+            }
+        });
+
+        socket.on('unpinMessage', async ({ chatId, messageId }) => {
+            try {
+                const chat = await Chat.findById(chatId);
+                if (!chat || !chat.members.includes(socket.userId)) return;
+                chat.pinnedMessages = chat.pinnedMessages.filter(id => id.toString() !== messageId);
+                await chat.save();
+                chat.members.forEach(member => {
+                    const socks = userSocketMap.get(member.toString());
+                    if (socks) socks.forEach(id => io.to(id).emit('messageUnpinned', { chatId, messageId }));
+                });
+            } catch (err) { }
+        });
+
+        // ────────────────────────────────────────
+        // Group Management
+        // ────────────────────────────────────────
+        socket.on('createGroup', async ({ groupName, memberIds }) => {
+            try {
+                if (!groupName || !memberIds || !memberIds.length) return;
+                const members = [...new Set([...memberIds, socket.userId])];
+                const newGroup = new Chat({
+                    isGroupChat: true,
+                    groupName,
+                    members,
+                    groupAdmins: [socket.userId],
+                    createdBy: socket.userId
+                });
+                await newGroup.save();
+                
+                members.forEach(member => {
+                    const socks = userSocketMap.get(member.toString());
+                    if (socks) socks.forEach(id => io.to(id).emit('groupCreated', { chat: newGroup }));
+                });
+            } catch (err) {
+                socket.emit('socketError', { event: 'createGroup', message: 'Failed to create group.' });
+            }
+        });
+
+        socket.on('updateGroupSettings', async ({ chatId, action, targetUserId }) => {
+            try {
+                const chat = await Chat.findById(chatId);
+                if (!chat || !chat.isGroupChat) return socket.emit('socketError', { event: 'updateGroupSettings', message: 'Group not found.' });
+                
+                const isAdmin = chat.groupAdmins.some(adminId => adminId.toString() === socket.userId);
+                if (!isAdmin) return socket.emit('socketError', { event: 'updateGroupSettings', message: 'Only admins can update group settings.' });
+
+                if (action === 'addAdmin') {
+                    if (!chat.groupAdmins.includes(targetUserId)) {
+                        chat.groupAdmins.push(targetUserId);
+                    }
+                } else if (action === 'removeAdmin') {
+                    chat.groupAdmins = chat.groupAdmins.filter(id => id.toString() !== targetUserId);
+                } else if (action === 'kick') {
+                    chat.members = chat.members.filter(id => id.toString() !== targetUserId);
+                    chat.groupAdmins = chat.groupAdmins.filter(id => id.toString() !== targetUserId);
+                }
+                
+                await chat.save();
+                
+                // Notify members
+                chat.members.forEach(member => {
+                    const socks = userSocketMap.get(member.toString());
+                    if (socks) socks.forEach(id => io.to(id).emit('groupUpdated', { chatId }));
+                });
+            } catch (err) {
+                socket.emit('socketError', { event: 'updateGroupSettings', message: 'Failed to update group.' });
+            }
+        });
+
         socket.on('disconnect', (reason) => {
             console.log(`[Socket] ${socket.username} disconnected (${reason})`);
             const userSockets = userSocketMap.get(socket.userId);

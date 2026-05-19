@@ -14,6 +14,7 @@ const mongoose = require('mongoose');
 
 const config = require('./config');
 const authRouter = require('./routes/auth');
+const userRouter = require('./routes/userRoutes');
 const { registerChatHandlers } = require('./sockets/chatHandlers');
 const { registerCanvasHandlers } = require('./sockets/canvasHandlers');
 
@@ -52,6 +53,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 // HTTP Routes
 // ──────────────────────────────────────────────
 app.use('/api/auth', authRouter);
+app.use('/api/user', userRouter);
 
 // Legacy alias for backwards compatibility with existing client code
 // Points /api/login -> /api/auth/login
