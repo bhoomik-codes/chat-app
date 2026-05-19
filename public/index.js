@@ -97,10 +97,122 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     requestNotificationPermission();
 
+    // --- Crypto Helper ---
+    const DB_NAME = 'KasugaiCryptoDB';
+    const DB_VERSION = 1;
+    const STORE_NAME = 'keypair';
+
+    function initCryptoDB() {
+        return new Promise((resolve, reject) => {
+            const req = indexedDB.open(DB_NAME, DB_VERSION);
+            req.onupgradeneeded = (e) => {
+                const db = e.target.result;
+                if (!db.objectStoreNames.contains(STORE_NAME)) {
+                    db.createObjectStore(STORE_NAME);
+                }
+            };
+            req.onsuccess = (e) => resolve(e.target.result);
+            req.onerror = (e) => reject(e.target.error);
+        });
+    }
+
+    async function getStoredKeyPair(db) {
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction(STORE_NAME, 'readonly');
+            const store = tx.objectStore(STORE_NAME);
+            const req = store.get('myKeyPair');
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => reject(req.error);
+        });
+    }
+
+    async function storeKeyPair(db, keyPair) {
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction(STORE_NAME, 'readwrite');
+            const store = tx.objectStore(STORE_NAME);
+            const req = store.put(keyPair, 'myKeyPair');
+            req.onsuccess = () => resolve();
+            req.onerror = () => reject(req.error);
+        });
+    }
+
+    function bufferToBase64(buf) {
+        return btoa(String.fromCharCode(...new Uint8Array(buf)));
+    }
+
+    function base64ToBuffer(b64) {
+        const binaryStr = atob(b64);
+        const len = binaryStr.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+            bytes[i] = binaryStr.charCodeAt(i);
+        }
+        return bytes.buffer;
+    }
+
+    let myPrivateKey = null;
+    const sessionKeys = new Map();
+
+    async function setupCrypto() {
+        const db = await initCryptoDB();
+        let keyPair = await getStoredKeyPair(db);
+
+        if (!keyPair) {
+            keyPair = await crypto.subtle.generateKey(
+                { name: "ECDH", namedCurve: "P-256" },
+                false, // extractable: false
+                ["deriveKey"]
+            );
+            await storeKeyPair(db, keyPair);
+        }
+
+        myPrivateKey = keyPair.privateKey;
+
+        const exportedPubKey = await crypto.subtle.exportKey("spki", keyPair.publicKey);
+        const pubKeyBase64 = bufferToBase64(exportedPubKey);
+        socket.emit('uploadPublicKey', { publicKey: pubKeyBase64 });
+    }
+
+    async function getSessionKey(partnerPublicKeyBase64, partnerId) {
+        if (sessionKeys.has(partnerId)) return sessionKeys.get(partnerId);
+        
+        const pubKeyBuf = base64ToBuffer(partnerPublicKeyBase64);
+        const partnerPubKey = await crypto.subtle.importKey(
+            "spki", pubKeyBuf, { name: "ECDH", namedCurve: "P-256" }, false, []
+        );
+
+        const derivedKey = await crypto.subtle.deriveKey(
+            { name: "ECDH", public: partnerPubKey }, myPrivateKey,
+            { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]
+        );
+        
+        sessionKeys.set(partnerId, derivedKey);
+        return derivedKey;
+    }
+
+    async function encryptMessage(text, derivedKey) {
+        const iv = crypto.getRandomValues(new Uint8Array(12));
+        const encodedText = new TextEncoder().encode(text);
+        const ciphertextBuf = await crypto.subtle.encrypt({ name: "AES-GCM", iv: iv }, derivedKey, encodedText);
+        return { ciphertextBase64: bufferToBase64(ciphertextBuf), ivBase64: bufferToBase64(iv) };
+    }
+
+    async function decryptMessage(ciphertextBase64, ivBase64, derivedKey) {
+        try {
+            const ciphertextBuf = base64ToBuffer(ciphertextBase64);
+            const iv = new Uint8Array(base64ToBuffer(ivBase64));
+            const decryptedBuf = await crypto.subtle.decrypt({ name: "AES-GCM", iv: iv }, derivedKey, ciphertextBuf);
+            return new TextDecoder().decode(decryptedBuf);
+        } catch (e) {
+            return "📜 This scroll is encrypted. Secrets are readable only by authorized Slayers.";
+        }
+    }
+
     // --- Initial Setup ---
     if (myUsername) {
         loggedInUsernameDisplay.textContent = `Logged in as: ${myUsername}`;
-        socket.emit("requestInitialData");
+        setupCrypto().then(() => socket.emit("requestInitialData"))
+            .catch(err => { console.error("Crypto error", err); socket.emit("requestInitialData"); });
     } else {
         location.href = "/";
     }
@@ -306,7 +418,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (userItemDot) userItemDot.className = `status-dot ${online ? 'online' : 'offline'}`;
     });
 
-    socket.on('chatContext', (context) => {
+    socket.on('chatContext', async (context) => {
         currentChatContext = context;
         chatBox.innerHTML = "";
         switch (context.type) {
@@ -314,6 +426,23 @@ document.addEventListener('DOMContentLoaded', () => {
                 const chatName = context.chat.isGroupChat ? context.chat.groupName : context.chat.members.find(m => m.username !== myUsername).username;
                 chatWithHeader.textContent = `Chat with ${chatName}`;
                 startCanvasBtn.classList.remove('hidden');
+                
+                let derivedKey = null;
+                if (!context.chat.isGroupChat) {
+                    const partner = context.chat.members.find(m => m.username !== myUsername);
+                    if (partner && partner.publicKey) {
+                        try { derivedKey = await getSessionKey(partner.publicKey, partner._id); } catch(e) { console.error(e); }
+                    }
+                }
+                
+                for (let msg of context.messages) {
+                    if (msg.isEncrypted && derivedKey && msg.iv) {
+                        msg.content = await decryptMessage(msg.content, msg.iv, derivedKey);
+                    } else if (msg.isEncrypted) {
+                        msg.content = "📜 This scroll is encrypted. Secrets are readable only by authorized Slayers.";
+                    }
+                }
+
                 context.messages.forEach(msg => appendMessage(msg));
                 showRequestBar(false);
                 showChatInput(true);
@@ -344,8 +473,24 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    socket.on('newMessage', ({ message }) => {
+    socket.on('newMessage', async ({ message }) => {
         if (currentChatContext.type === 'existingChat' && currentChatContext.chat._id === message.chatId) {
+            if (message.isEncrypted && message.iv && !currentChatContext.chat.isGroupChat) {
+                const partner = currentChatContext.chat.members.find(m => m.username !== myUsername);
+                if (partner && partner.publicKey) {
+                    try {
+                        const derivedKey = await getSessionKey(partner.publicKey, partner._id);
+                        message.content = await decryptMessage(message.content, message.iv, derivedKey);
+                    } catch(e) {
+                        message.content = "📜 This scroll is encrypted. Secrets are readable only by authorized Slayers.";
+                    }
+                } else {
+                    message.content = "📜 This scroll is encrypted. Secrets are readable only by authorized Slayers.";
+                }
+            } else if (message.isEncrypted) {
+                message.content = "📜 This scroll is encrypted. Secrets are readable only by authorized Slayers.";
+            }
+
             appendMessage(message);
         }
         if (document.hidden && Notification.permission === 'granted' && message.sender.username !== myUsername) {
@@ -585,18 +730,49 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    function sendMessage() {
+    async function sendMessage() {
         const content = messageInput.value.trim();
         if (!content) return;
+
+        let contentToSend = content;
+        let ivBase64 = undefined;
+        let isEncrypted = false;
+
+        if (currentChatContext.type === 'existingChat' && !currentChatContext.chat.isGroupChat) {
+             const partner = currentChatContext.chat.members.find(m => m.username !== myUsername);
+             if (partner && partner.publicKey) {
+                 const derivedKey = await getSessionKey(partner.publicKey, partner._id);
+                 const enc = await encryptMessage(content, derivedKey);
+                 contentToSend = enc.ciphertextBase64;
+                 ivBase64 = enc.ivBase64;
+                 isEncrypted = true;
+             }
+        } else if (currentChatContext.type === 'new') {
+             const partner = currentChatContext.partner;
+             if (partner && partner.publicKey) {
+                 const derivedKey = await getSessionKey(partner.publicKey, partner._id);
+                 const enc = await encryptMessage(content, derivedKey);
+                 contentToSend = enc.ciphertextBase64;
+                 ivBase64 = enc.ivBase64;
+                 isEncrypted = true;
+             }
+        }
 
         if (currentChatContext.type === 'existingChat') {
             socket.emit('sendMessage', {
                 chatId: currentChatContext.chat._id,
-                messageContent: content,
-                replyToId: replyContext ? replyContext.messageId : null
+                messageContent: contentToSend,
+                replyToId: replyContext ? replyContext.messageId : null,
+                iv: ivBase64,
+                isEncrypted
             });
         } else if (currentChatContext.type === 'new') {
-            socket.emit('sendInitialMessage', { targetUserId: currentChatContext.partner._id, messageContent: content });
+            socket.emit('sendInitialMessage', { 
+                targetUserId: currentChatContext.partner._id, 
+                messageContent: contentToSend,
+                iv: ivBase64,
+                isEncrypted
+            });
         }
 
         messageInput.value = "";

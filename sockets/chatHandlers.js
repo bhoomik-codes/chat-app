@@ -144,14 +144,14 @@ function registerChatHandlers(io) {
                 if (isGroup) {
                     chat = await Chat.findById(targetId).populate('members', 'username').populate('pinnedMessages');
                 } else {
-                    partner = await User.findById(targetId); // Fetched ONCE, reused below
+                    partner = await User.findById(targetId).select('+publicKey'); // Fetched ONCE, reused below
                     if (!partner) {
                         return socket.emit('socketError', { event: 'loadChatContext', message: 'User not found.' });
                     }
                     chat = await Chat.findOne({
                         isGroupChat: false,
                         members: { $all: [socket.userId, partner._id] }
-                    }).populate('members', 'username').populate('pinnedMessages');
+                    }).populate('members', 'username publicKey').populate('pinnedMessages');
                 }
 
                 if (chat) {
@@ -183,7 +183,7 @@ function registerChatHandlers(io) {
 
                     return socket.emit('chatContext', {
                         type: 'new',
-                        partner: { username: partner.username, _id: partner._id }
+                        partner: { username: partner.username, _id: partner._id, publicKey: partner.publicKey }
                     });
                 }
             } catch (error) {
@@ -195,7 +195,7 @@ function registerChatHandlers(io) {
         // ────────────────────────────────────────
         // sendInitialMessage — FIXED: self-request guard
         // ────────────────────────────────────────
-        socket.on('sendInitialMessage', async ({ targetUserId, messageContent }) => {
+        socket.on('sendInitialMessage', async ({ targetUserId, messageContent, iv, isEncrypted }) => {
             try {
                 // Guard: prevent self-requests
                 if (targetUserId.toString() === socket.userId.toString()) {
@@ -207,7 +207,15 @@ function registerChatHandlers(io) {
                     return socket.emit('socketError', { event: 'sendInitialMessage', message: 'Message content cannot be empty.' });
                 }
 
-                const newMsg = new Message({ sender: socket.userId, content: messageContent.trim() });
+                // Replay Protection: Ensure IV hasn't been used before
+                if (isEncrypted && iv) {
+                    const existingIv = await Message.exists({ iv });
+                    if (existingIv) {
+                        return socket.emit('socketError', { event: 'sendInitialMessage', message: 'Replay attack detected: duplicate IV.' });
+                    }
+                }
+
+                const newMsg = new Message({ sender: socket.userId, content: messageContent.trim(), iv, isEncrypted });
                 await newMsg.save();
 
                 await MessageRequest.create({
@@ -289,7 +297,7 @@ function registerChatHandlers(io) {
         // ────────────────────────────────────────
         // sendMessage — FIXED: membership guard
         // ────────────────────────────────────────
-        socket.on('sendMessage', async ({ chatId, messageContent, replyToId }) => {
+        socket.on('sendMessage', async ({ chatId, messageContent, replyToId, iv, isEncrypted }) => {
             try {
                 if (!messageContent || typeof messageContent !== 'string' || messageContent.trim() === '') {
                     return socket.emit('socketError', { event: 'sendMessage', message: 'Message content cannot be empty.' });
@@ -315,7 +323,15 @@ function registerChatHandlers(io) {
                     replyTo = parentMsg._id;
                 }
 
-                const newMessage = new Message({ sender: socket.userId, chatId, content: messageContent.trim(), replyTo });
+                // Replay Protection: Ensure IV hasn't been used in this chat before
+                if (isEncrypted && iv) {
+                    const existingIv = await Message.exists({ chatId, iv });
+                    if (existingIv) {
+                        return socket.emit('socketError', { event: 'sendMessage', message: 'Replay attack detected: duplicate IV.' });
+                    }
+                }
+
+                const newMessage = new Message({ sender: socket.userId, chatId, content: messageContent.trim(), replyTo, iv, isEncrypted });
                 await newMessage.save();
 
                 const populatedMessage = await Message.findById(newMessage._id).populate('sender', 'username').populate({ path: 'replyTo', populate: { path: 'sender', select: 'username' } }).lean();
@@ -471,6 +487,19 @@ function registerChatHandlers(io) {
                 });
             } catch (err) {
                 socket.emit('socketError', { event: 'updateGroupSettings', message: 'Failed to update group.' });
+            }
+        });
+
+        // ────────────────────────────────────────
+        // Upload Public Key
+        // ────────────────────────────────────────
+        socket.on('uploadPublicKey', async ({ publicKey }) => {
+            try {
+                if (publicKey && typeof publicKey === 'string') {
+                    await User.updateOne({ _id: socket.userId }, { $set: { publicKey } });
+                }
+            } catch (err) {
+                console.error('[Socket] uploadPublicKey error:', err);
             }
         });
 

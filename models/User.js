@@ -23,6 +23,10 @@ const UserSchema = new mongoose.Schema({
         type: mongoose.Schema.Types.ObjectId,
         ref: 'User'
     }],
+    publicKey: {
+        type: String,
+        default: null
+    },
     statusQuote: {
         type: String,
         default: 'Slaying demons since dusk.'

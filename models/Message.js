@@ -16,6 +16,13 @@ const messageSchema = new mongoose.Schema({
     type: String,
     required: true
   },
+  iv: {
+    type: String
+  },
+  isEncrypted: {
+    type: Boolean,
+    default: false
+  },
   readBy: [{
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User'
